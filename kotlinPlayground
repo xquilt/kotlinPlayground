@@ -1,0 +1,52 @@
+#!/usr/bin/bash
+file="${1}"
+function postRequest() {
+    local args=""
+    local apiLevel="1.8.21"
+    local sourceCode="$(cat ${file} | jq -Rs .)"
+    local json_data=$(cat <<EOF
+{
+    "args": "",
+    "confType": "java",
+    "files": [
+        {
+            "name": "File.kt",
+            "publicId": "",
+            "text": ${sourceCode}
+        }
+    ]
+}
+EOF
+    )
+    curl --request POST \
+        --header "user-agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36" \
+        --header "content-type: application/json; charset=UTF-8" \
+        --silent \
+        --data "${json_data}" \
+        "https://api.kotlinlang.org//api/${apiLevel}/compiler/run"
+}
+
+function parseResponse() {
+    # Print out proper output
+    echo ${1} | jq --raw-output '.text' | sed 's/<outStream>\|<\/outStream>//g'
+    # Handle potential additional exceptions
+    local warningEscapecodes="\e[31m%s\e[0m\n"
+    local exception="$(echo ${1} | jq '.exception')"
+    local exceptionPrefix='Exception in thread "main"'
+    if [ "${exception}" != 'null' ]; then
+        local stLine="${exceptionPrefix} $(echo ${exception} | jq '.fullName')"
+        local ndLine="$(echo ${exception} | jq '.message')"
+        local stackTrace="$(echo ${exception} | jq '.stackTrace')"
+        local followingLines="$(echo ${stackTrace} | jq '.[] | "at \(.className).\(.methodName) (\(.fileName):\(.lineNumber))"')"
+        printf "${warningEscapecodes}" "${stLine}"
+        printf "${warningEscapecodes}" "${ndLine}"
+        # printf "\t${followingLines}\n"
+        printf "${warningEscapecodes}" "$(echo "${followingLines}" | sed 's/^/\t/g')"}
+    fi
+}
+
+parseResponse "$(postRequest)"
+
+# Values for testing (Eliminates the time overhead of sending actual requests) during development
+# value='{"errors":{"File.kt":[]},"exception":null,"text":"<outStream>12345678910\n12345678913579\n123456789\n10987654321\nOne\nTwo\nThree\n0..2\nOne\nTwo\nThree\n\n</outStream>"}'
+# valuee='{"errors":{"File.kt":[]},"exception":{"message":"Index 3 out of bounds for length 3","fullName":"java.lang.ArrayIndexOutOfBoundsException","stackTrace":[{"className":"java.util.Arrays$ArrayList","methodName":"get","fileName":null,"lineNumber":-1},{"className":"FileKt","methodName":"forLoop","fileName":"File.kt","lineNumber":39},{"className":"FileKt","methodName":"main","fileName":"File.kt","lineNumber":2}],"cause":null,"localizedMessage":null},"text":"<outStream>12345678910\n12345678913579\n123456789\n10987654321\nOne\nTwo\nThree\n</outStream>"}'
