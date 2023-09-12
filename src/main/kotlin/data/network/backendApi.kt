@@ -1,8 +1,12 @@
 import com.google.gson.Gson
+import domain.models.Exception
+import domain.models.ResponseForm
 import okhttp3.MediaType
 import okhttp3.RequestBody
 import retrofit2.Call
+import retrofit2.Response
 import retrofit2.Retrofit
+import retrofit2.awaitResponse
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.Headers
@@ -15,6 +19,7 @@ import retrofit2.http.POST
  */
 private fun generateBaseUrl(): String {
     // todo: Maybe another separate kotlin file, that would be used to scrape the versions from time to time cache the list.
+    // FIXME: Sometimes when keeping on using a deprecated version (deprecated at the playground), it takes a considerable amount of time to load, which raised SocketTimeOutException
     val versions = listOf(
         "1.2.71",
         "1.3.72",
@@ -24,10 +29,9 @@ private fun generateBaseUrl(): String {
         "1.7.21",
         "1.8.10",
         "1.8.21",
-        "1.9.0"
+        "1.9.10"
     )
-    val baseUrl: String = "https:/api.kotlinlang.org/api/${versions.last()}/"
-    return (baseUrl)
+    return ("https:/api.kotlinlang.org/api/${versions.last()}/")
 }
 
 /**
@@ -40,22 +44,6 @@ private fun readCode(fileName: String): String {
     // todo: Check if a file is already existent or not, then read its content. Return a string of the file content Check if the return string is empty at higher-order functions, and if so, don't send a request.
     lateinit var sourceCode: String;
     return (sourceCode)
-}
-
-fun getSourceCode(sourceCodeFile: String): String {
-    var tempSourceCode = """
-        fun main() {
-            println("Hello, world!")
-            for (i in 1..10) {
-                println(i)
-            }
-            val names = listOf(1, 2, 3)
-            for (i in 0..names.size) {
-                println(names[i])
-            }
-        }
-    """.trimIndent()
-    return (tempSourceCode)
 }
 
 private fun parseSourceCode(sourceCode: String): String {
@@ -77,50 +65,6 @@ private fun parseSourceCode(sourceCode: String): String {
     return (jsonString)
 }
 
-data class ResponseForm(
-    val errors: Errors,
-    val exception: Exception,
-    val text: String
-) {
-    data class Errors(
-        val Filekt: List<FileKt>
-    ) {
-        data class FileKt(
-            val className: String,
-            val interval: Interval,
-            val message: String,
-            val severity: String
-        ) {
-            data class Interval(
-                val start: Start,
-                val end: End
-            ) {
-                data class Start(
-                    val ch: Int,
-                    val line: Int
-                )
-                data class End(
-                    val ch: Int,
-                    val line: Int
-                )
-            }
-        }
-    }
-    data class Exception(
-        val cause: Any,
-        val fullName: String,
-        val localizedMessage: Any,
-        val message: String,
-        val stackTrace: List<StackTrace>
-    ) {
-        data class StackTrace(
-            val className: String,
-            val fileName: String,
-            val lineNumber: Int,
-            val methodName: String
-        )
-    }
-}
 // Creating a retrofit instance
 private val retrofit = Retrofit.Builder()
     .baseUrl(generateBaseUrl())
@@ -138,11 +82,10 @@ private interface KotlinApiInterface {
     fun sendData(@Body requestBody: RequestBody): Call<ResponseForm>;
 }
 
-
-fun sendPostRequest(
+suspend fun sendPostRequest(
     sourceCode: String,
     arguments: String,
-    successCallback: (ResponseForm?) -> Unit,
+    successCallback: (Response<ResponseForm>?) -> Unit,
     failureCallback: (Throwable) -> Unit,
 ): Unit {
     // Creating an instance of our API interface
@@ -166,26 +109,25 @@ fun sendPostRequest(
     )
 
     // Making an API call and handling the response
-    val call = apiService.sendData(requestBody)
-    call.enqueue(object : retrofit2.Callback<ResponseForm> {
-        override fun onResponse(
-            call: Call<ResponseForm>,
-            response: retrofit2.Response<ResponseForm>
-        ) {
-            if (response.code() == 200) {
-                successCallback(response.body())
-            }
-        }
-        override fun onFailure(
-            call: Call<ResponseForm>,
-            throwable: Throwable
-        ) {
-            failureCallback(throwable)
-        }
-    })
+    val response = apiService.sendData(requestBody).awaitResponse()
+    successCallback(response)
+
 }
 
-// a kotlin function to convert a string as a json object then access the json object values
-
-//var codeOutput: String = jsonObject.get("text").asString.replace("<outStream>", "")
-//    .replace(Regex("<(/)?outStream>"), "")
+/**
+ * A kotlin extension function of thr String class used to remove extraneous text from the code output.
+ *
+ */
+fun String.formatCodeOutput() = this.replace(Regex("<(/)?outStream>"), "")
+/**
+ * A kotlin extension function of thr Exception data class used to parse exception messages.
+ *
+ */
+fun Exception.parseOutput(): MutableList<String> {
+    return mutableListOf<String>().apply {
+        add("Exception in thread \"main\" ${this@parseOutput.fullName}: ${message}")
+        this@parseOutput.stackTrace.forEach {
+            this.add("at ${it.className}.${it.methodName} (${if (it.fileName == "null") it.fileName else ""}:${it.lineNumber})")
+        }
+    }
+}

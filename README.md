@@ -2,9 +2,20 @@
 A desktop client of the oficial [Kotlin playground](https://play.kotlinlang.org) by JetBrains.
 
 ## Showcase
-<span>
-    <img src="./readmeMedia/MainScreen.png" width="500";
-</span>
+<table>
+  <tr>
+    <th>Valid output</th>
+    <th>Exception handling</th>
+  </tr>
+  <tr>
+    <td>
+      <img src="./media/MainScreen.png" width="500">
+    </td>
+    <td>
+      <img src="./media/exception.png" width="500">
+    </td>
+  </tr>
+</table>
 
 ## Installation
 
